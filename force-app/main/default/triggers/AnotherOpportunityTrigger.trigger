@@ -22,10 +22,22 @@ trigger AnotherOpportunityTrigger on Opportunity (before insert, after insert, b
     if (Trigger.isBefore){
         if (Trigger.isInsert){
             // Set default Type for new Opportunities
-            Opportunity opp = Trigger.new[0];
-            if (opp.Type == null){
-                opp.Type = 'New Customer';
-            }        
+            for (Opportunity opp : Trigger.new){
+                if (opp.Type == null){
+                 opp.Type = 'New Customer';
+                }
+            }
+        } else if (Trigger.isUpdate){
+            List<Opportunity> oppsToUpdate = new List<Opportunity>();
+            for (Opportunity opp : Trigger.new){
+                Opportunity oldOpp = Trigger.oldMap.get(opp.Id);
+                    if (oldOpp != null && oldOpp.StageName != opp.StageName){
+                        opp.Description += '\n Stage Change:' + opp.StageName + ':' + DateTime.now().format();
+                        oppsToUpdate.add(opp);
+                    }             
+            }
+            update oppsToUpdate;
+             
         } else if (Trigger.isDelete){
             // Prevent deletion of closed Opportunities
             for (Opportunity oldOpp : Trigger.old){
@@ -39,6 +51,7 @@ trigger AnotherOpportunityTrigger on Opportunity (before insert, after insert, b
     if (Trigger.isAfter){
         if (Trigger.isInsert){
             // Create a new Task for newly inserted Opportunities
+            List<Task> taskToInsert = new List<Task>();
             for (Opportunity opp : Trigger.new){
                 Task tsk = new Task();
                 tsk.Subject = 'Call Primary Contact';
@@ -46,21 +59,10 @@ trigger AnotherOpportunityTrigger on Opportunity (before insert, after insert, b
                 tsk.WhoId = opp.Primary_Contact__c;
                 tsk.OwnerId = opp.OwnerId;
                 tsk.ActivityDate = Date.today().addDays(3);
-                insert tsk;
+                taskToInsert.add(tsk);
             }
-        } else if (Trigger.isUpdate){
-            // Append Stage changes in Opportunity Description
-            for (Opportunity opp : Trigger.new){
-                for (Opportunity oldOpp : Trigger.old){
-                    if (opp.StageName != null){
-                        opp.Description += '\n Stage Change:' + opp.StageName + ':' + DateTime.now().format();
-                    }
-                }                
-            }
-            update Trigger.new;
-        }
-        // Send email notifications when an Opportunity is deleted 
-        else if (Trigger.isDelete){
+            insert taskToInsert;
+        } else if (Trigger.isDelete){
             notifyOwnersOpportunityDeleted(Trigger.old);
         } 
         // Assign the primary contact to undeleted Opportunities
@@ -75,14 +77,22 @@ trigger AnotherOpportunityTrigger on Opportunity (before insert, after insert, b
     - Uses Salesforce's Messaging.SingleEmailMessage to send the email.
     */
     private static void notifyOwnersOpportunityDeleted(List<Opportunity> opps) {
+        Set<Id> ownerIds = new set<Id>();
+        for (Opportunity currOpp : opps){
+             ownerIds.add(currOpp.OwnerId);
+    	}
+        Map<Id, User> userMap = new Map<Id, User>([SELECT Id, Email FROM User WHERE ID IN :ownerIds]);
         List<Messaging.SingleEmailMessage> mails = new List<Messaging.SingleEmailMessage>();
         for (Opportunity opp : opps){
+            User owner = userMap.get(opp.OwnerId);
+            if (owner != null && owner.email != null) {
             Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
-            String[] toAddresses = new String[] {[SELECT Id, Email FROM User WHERE Id = :opp.OwnerId].Email};
+            String[] toAddresses = new String[] {owner.Email};
             mail.setToAddresses(toAddresses);
             mail.setSubject('Opportunity Deleted : ' + opp.Name);
             mail.setPlainTextBody('Your Opportunity: ' + opp.Name +' has been deleted.');
             mails.add(mail);
+            }
         }        
         
         try {
