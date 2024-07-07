@@ -44,7 +44,7 @@ trigger AccountTrigger on Account (before insert, after insert) {
     * Trigger should only fire on insert.
     */
     if (Trigger.isBefore && Trigger.isInsert) {
-        
+        AccountHelper.setRating(trigger.new);
     }
     
     /*
@@ -55,14 +55,6 @@ trigger AccountTrigger on Account (before insert, after insert) {
     * Trigger should only fire on insert.
     */    
     if(Trigger.isAfter && Trigger.isInsert){     
-        List<Contact> contacts = new List<Contact>();   
-        for(Account acc : Trigger.new){
-            Contact con = new Contact();
-            con.LastName = 'DefaultContact';
-            con.Email = 'default@email.com';
-            con.AccountId = acc.Id;
-            contacts.add(con);
-        }
-        insert contacts; 
+        AccountHelper.defaultContact(trigger.new);
     }
 }
